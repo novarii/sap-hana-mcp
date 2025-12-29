@@ -1,0 +1,30 @@
+{
+  "name": "sap-hana-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for read-only access to SAP HANA databases",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "sap-hana-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "keywords": ["mcp", "sap", "hana", "database"],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@10.23.0",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "@sap/hana-client": "^2.27.19",
+    "dotenv": "^17.2.3",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

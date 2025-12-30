@@ -58,7 +58,7 @@ Create `.mcp.json` in your project root:
       "command": "node",
       "args": ["/path/to/sap-hana-mcp/dist/index.js"],
       "env": {
-        "HANA_HOST": "192.168.0.150",
+        "HANA_HOST": "your-hana-host.example.com",
         "HANA_PORT": "30015",
         "HANA_USER": "MCP_READER",
         "HANA_PASSWORD": "your_password",
@@ -76,9 +76,9 @@ Or add via CLI:
 
 ```bash
 claude mcp add sap-hana --transport stdio \
-  --env HANA_HOST=192.168.0.150 \
+  --env HANA_HOST=your-hana-host.example.com \
   --env HANA_PORT=30015 \
-  --env HANA_USER=MCP_READER \
+  --env HANA_USER=your_user \
   --env HANA_PASSWORD=your_password \
   --env HANA_SCHEMA=YOUR_SCHEMA \
   --env HANA_ENCRYPT=false \

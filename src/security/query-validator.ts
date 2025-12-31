@@ -112,21 +112,23 @@ export function validateQuery(sql: string): void {
 }
 
 /**
- * Validates a schema name to prevent SQL injection.
- * Schema names should only contain alphanumeric characters, underscores, and dots.
+ * Validates a schema/table name to prevent SQL injection.
+ * In SAP HANA/B1, identifiers can start with @, _, or letter.
+ * User-defined tables in B1 start with @ (e.g., @ATELIERATTN)
  */
 export function validateIdentifier(identifier: string, type: string = "identifier"): void {
   if (!identifier || typeof identifier !== "string") {
     throw new QueryValidationError(`${type} must be a non-empty string`);
   }
 
-  // Allow alphanumeric, underscore, and some special chars common in HANA
-  // Must start with a letter or underscore
-  const validPattern = /^[a-zA-Z_][a-zA-Z0-9_#$]*$/;
+  // Allow @ prefix for SAP B1 user-defined tables
+  // Allow alphanumeric, underscore, #, $ after first char
+  // Must start with letter, underscore, or @ (for B1 UDTs)
+  const validPattern = /^[@a-zA-Z_][a-zA-Z0-9_#$@]*$/;
 
   if (!validPattern.test(identifier)) {
     throw new QueryValidationError(
-      `Invalid ${type}: "${identifier}". Must start with a letter or underscore and contain only alphanumeric characters, underscores, #, or $.`
+      `Invalid ${type}: "${identifier}". Must start with a letter, underscore, or @ and contain only alphanumeric characters, underscores, @, #, or $.`
     );
   }
 

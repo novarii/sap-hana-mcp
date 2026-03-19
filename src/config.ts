@@ -9,7 +9,6 @@ export interface HanaConfig {
   encrypt: boolean;
   sslValidateCertificate: boolean;
   rowLimit: number;
-  maxResultSize: number; // bytes
   queryTimeout: number; // ms
   connectionTimeout: number; // ms
 }
@@ -52,7 +51,6 @@ export function loadConfig(): HanaConfig {
     encrypt: getEnvBoolean("HANA_ENCRYPT", true),
     sslValidateCertificate: getEnvBoolean("HANA_SSL_VALIDATE_CERTIFICATE", true),
     rowLimit: getEnvNumber("HANA_ROW_LIMIT", 1000),
-    maxResultSize: getEnvNumber("HANA_MAX_RESULT_SIZE", 5 * 1024 * 1024), // 5MB
     queryTimeout: getEnvNumber("HANA_QUERY_TIMEOUT", 30000), // 30s
     connectionTimeout: getEnvNumber("HANA_CONNECTION_TIMEOUT", 5000), // 5s
   };

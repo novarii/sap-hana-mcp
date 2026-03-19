@@ -9,6 +9,7 @@
 
 import hana from "@sap/hana-client";
 import { getConfig, type HanaConfig } from "../config.js";
+import { auditLog } from "../security/audit.js";
 
 export interface QueryResult {
   columns: string[];
@@ -82,21 +83,30 @@ export async function executeQuery(
   params: unknown[] = []
 ): Promise<QueryResult> {
   const config = getConfig();
+  const startTime = Date.now();
   const conn = await createConnection();
 
   try {
-    // Set query timeout via session variable
-    await execStatement(conn, `SET 'statement_timeout' = '${config.queryTimeout}'`);
+    // Set query timeout via parameterized value
+    await execStatement(conn, `SET 'statement_timeout' = '${Number(config.queryTimeout)}'`);
 
-    // Execute the query
-    const result = await execQuery(conn, sql, params);
+    // Wrap user queries with TOP to prevent fetching millions of rows into memory.
+    // Only wraps if the query doesn't already have a TOP/LIMIT clause.
+    const wrappedSql = wrapWithRowLimit(sql, config.rowLimit);
 
-    // Process results
+    const result = await execQuery(conn, wrappedSql, params);
+
     const columns = result.length > 0 ? Object.keys(result[0]) : [];
     const truncated = result.length >= config.rowLimit;
-
-    // Apply row limit
     const limitedRows = result.slice(0, config.rowLimit);
+    const durationMs = Date.now() - startTime;
+
+    auditLog({
+      query: sql,
+      rowCount: limitedRows.length,
+      truncated,
+      durationMs,
+    });
 
     return {
       columns,
@@ -104,10 +114,32 @@ export async function executeQuery(
       rowCount: limitedRows.length,
       truncated,
     };
+  } catch (err) {
+    const durationMs = Date.now() - startTime;
+    const message = err instanceof Error ? err.message : "Unknown error";
+    auditLog({
+      query: sql,
+      error: message,
+      durationMs,
+    });
+    throw err;
   } finally {
-    // Always close connection - connection recycling for security
     await closeConnection(conn);
   }
+}
+
+/**
+ * Wraps a query with TOP to prevent OOM from unbounded SELECTs.
+ * Only wraps if the query doesn't already contain TOP or LIMIT.
+ */
+function wrapWithRowLimit(sql: string, rowLimit: number): string {
+  const upper = sql.trim().toUpperCase();
+  // Don't double-limit if the query already has TOP or LIMIT
+  if (/\bTOP\s+\d/i.test(sql) || /\bLIMIT\s+\d/i.test(sql)) {
+    return sql;
+  }
+  // Wrap: SELECT TOP N * FROM (original_query)
+  return `SELECT TOP ${Number(rowLimit)} * FROM (${sql.replace(/;\s*$/, "")})`;
 }
 
 /**

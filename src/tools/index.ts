@@ -8,7 +8,8 @@ import { z } from "zod";
 import { executeQuery, getEffectiveSchema, isSchemaAllowed, type QueryResult } from "../hana/client.js";
 import { validateQuery, validateIdentifier, QueryValidationError } from "../security/query-validator.js";
 import { queryRateLimiter } from "../security/rate-limiter.js";
-import { formatAsTable, formatResult } from "./format.js";
+import { formatAsTable, formatResult, formatCompactDescribe, formatAsCsv } from "./format.js";
+import { writeToolOutput, writeQueryOutput } from "./output.js";
 import { getConfig } from "../config.js";
 
 // ============================================================================
@@ -37,7 +38,7 @@ export const executeQuerySchema = z.object({
 export const getTableSampleSchema = z.object({
   schema: z.string().optional().describe("Schema name. If not provided, uses configured default schema."),
   table: z.string().describe("Table name to sample."),
-  limit: z.number().min(1).max(100).default(10).describe("Number of rows to return (1-100, default 10)."),
+  limit: z.number().min(1).max(100).default(5).describe("Number of rows to return (1-100, default 5)."),
 });
 
 // ============================================================================
@@ -123,7 +124,8 @@ export async function listViews(args: z.infer<typeof listViewsSchema>): Promise<
 }
 
 /**
- * Describe a table or view (columns, indexes, constraints).
+ * Describe a table or view — compact format with file output.
+ * Returns a short summary inline and writes full column list to a file.
  */
 export async function describeTable(args: z.infer<typeof describeTableSchema>): Promise<string> {
   queryRateLimiter.check();
@@ -137,9 +139,8 @@ export async function describeTable(args: z.infer<typeof describeTableSchema>): 
       COLUMN_NAME,
       DATA_TYPE_NAME,
       LENGTH,
-      IS_NULLABLE,
-      DEFAULT_VALUE,
-      POSITION
+      SCALE,
+      DEFAULT_VALUE
     FROM SYS.TABLE_COLUMNS
     WHERE SCHEMA_NAME = ? AND TABLE_NAME = ?
     ORDER BY POSITION
@@ -152,39 +153,24 @@ export async function describeTable(args: z.infer<typeof describeTableSchema>): 
     ORDER BY POSITION
   `, [schema, args.table]);
 
-  const fkResult = await executeQuery(`
-    SELECT
-      COLUMN_NAME,
-      REFERENCED_TABLE_NAME,
-      REFERENCED_COLUMN_NAME
-    FROM SYS.REFERENTIAL_CONSTRAINTS
-    WHERE SCHEMA_NAME = ? AND TABLE_NAME = ?
-  `, [schema, args.table]);
+  // SAP B1 doesn't define FKs at DB level — skip that query entirely
 
-  // Build a compact description
-  const pkColumns = pkResult.rows.map((r) => r.COLUMN_NAME);
-  const parts: string[] = [];
+  const pkColumns = new Set(pkResult.rows.map((r) => String(r.COLUMN_NAME)));
+  const { summary, fileContent } = formatCompactDescribe(
+    columnsResult.rows,
+    pkColumns,
+    schema,
+    args.table,
+  );
 
-  parts.push(`## ${schema}.${args.table}\n`);
+  const filepath = writeToolOutput("describe", `${schema}_${args.table}`, fileContent);
 
-  // Columns as markdown table
-  parts.push("**Columns:**\n");
-  parts.push(formatAsTable(columnsResult));
-
-  if (pkColumns.length > 0) {
-    parts.push(`\n**Primary Key:** ${pkColumns.join(", ")}`);
-  }
-
-  if (fkResult.rows.length > 0) {
-    parts.push("\n**Foreign Keys:**\n");
-    parts.push(formatAsTable(fkResult));
-  }
-
-  return parts.join("\n");
+  return `${summary}\n\nFull column list → ${filepath}\nUse Read or Grep on the file to find specific columns.`;
 }
 
 /**
  * Execute a read-only SQL query.
+ * Small results return inline; large results go to a CSV file.
  */
 export async function executeUserQuery(args: z.infer<typeof executeQuerySchema>): Promise<string> {
   queryRateLimiter.check();
@@ -200,7 +186,34 @@ export async function executeUserQuery(args: z.infer<typeof executeQuerySchema>)
 
   try {
     const result = await executeQuery(args.query);
-    return formatResult(result);
+
+    // Small results: return inline (no file needed)
+    if (result.rowCount <= 20 && result.columns.length <= 10) {
+      const inline = formatResult(result);
+      const suffix = result.truncated ? " (truncated)" : "";
+      return `${result.rowCount} rows${suffix}.\n\n${inline}`;
+    }
+
+    // Large results: write CSV to file, show first 5 rows inline
+    const csv = formatAsCsv(result);
+    const filepath = writeQueryOutput(args.query, csv);
+
+    const preview = {
+      ...result,
+      rows: result.rows.slice(0, 5),
+      rowCount: Math.min(5, result.rowCount),
+    };
+    const previewText = formatResult(preview);
+    const truncNote = result.truncated ? " (query row limit reached)" : "";
+
+    return [
+      `${result.rowCount} rows, ${result.columns.length} columns${truncNote}.`,
+      "",
+      previewText,
+      result.rowCount > 5 ? `... ${result.rowCount - 5} more rows` : "",
+      "",
+      `Full results → ${filepath}`,
+    ].filter(Boolean).join("\n");
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return `**Query failed:** ${message}`;
@@ -209,6 +222,7 @@ export async function executeUserQuery(args: z.infer<typeof executeQuerySchema>)
 
 /**
  * Get sample data from a table.
+ * Writes full data to CSV file, returns summary inline.
  */
 export async function getTableSample(args: z.infer<typeof getTableSampleSchema>): Promise<string> {
   queryRateLimiter.check();
@@ -217,12 +231,33 @@ export async function getTableSample(args: z.infer<typeof getTableSampleSchema>)
   validateIdentifier(schema, "schema");
   validateIdentifier(args.table, "table");
 
-  const limit = Math.min(args.limit || 10, 100);
-  const sql = `SELECT TOP ${Number(limit)} * FROM "${schema}"."${args.table}"`;
+  const limit = Math.min(args.limit || 5, 100);
 
   try {
+    // Get total row count for context
+    const countResult = await executeQuery(
+      `SELECT COUNT(*) AS CNT FROM "${schema}"."${args.table}"`,
+    );
+    const totalRows = Number(countResult.rows[0]?.CNT ?? 0);
+
+    const sql = `SELECT TOP ${Number(limit)} * FROM "${schema}"."${args.table}"`;
     const result = await executeQuery(sql);
-    return formatResult(result);
+
+    // Count non-empty columns
+    const nonEmptyCols = result.columns.filter((col) =>
+      result.rows.some((row) => row[col] != null && String(row[col]).trim() !== "")
+    );
+
+    // Write CSV to file
+    const csv = formatAsCsv(result);
+    const filepath = writeToolOutput("sample", `${schema}_${args.table}`, csv, "csv");
+
+    return [
+      `${schema}.${args.table} — ${result.rowCount} sample rows (of ${totalRows.toLocaleString()} total), ${nonEmptyCols.length} non-empty columns (${result.columns.length} total)`,
+      "",
+      `Data → ${filepath}`,
+      `Use Read or Grep on the file to inspect specific columns.`,
+    ].join("\n");
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return `**Failed to sample ${schema}.${args.table}:** ${message}`;

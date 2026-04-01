@@ -24,6 +24,7 @@ import {
 } from "./tools/index.js";
 import { testConnection } from "./hana/client.js";
 import { getConfig } from "./config.js";
+import { initOutputDir, getOutputDir } from "./tools/output.js";
 
 // Create MCP server
 const server = new McpServer({
@@ -67,7 +68,7 @@ server.tool(
 
 server.tool(
   "describe_table",
-  "Get detailed information about a table or view including columns, primary keys, indexes, and foreign keys.",
+  "Get table schema in compact notation. Returns a summary inline and writes full column list to a file. Use Read or Grep on the file path to find specific columns.",
   describeTableSchema.shape,
   async (args) => {
     const result = await describeTable(args);
@@ -77,7 +78,7 @@ server.tool(
 
 server.tool(
   "execute_query",
-  "Execute a read-only SQL SELECT query. Only SELECT and WITH statements are allowed. Results are limited to prevent memory issues.",
+  "Execute a read-only SQL SELECT query. Only SELECT and WITH statements are allowed. Small results return inline; large results are written to a CSV file with a preview shown inline.",
   executeQuerySchema.shape,
   async (args) => {
     const result = await executeUserQuery(args);
@@ -87,7 +88,7 @@ server.tool(
 
 server.tool(
   "get_table_sample",
-  "Get sample rows from a table. Useful for understanding data structure and content.",
+  "Get sample rows from a table written to a CSV file. Returns a summary inline with the file path. Use Read or Grep on the file to inspect specific columns.",
   getTableSampleSchema.shape,
   async (args) => {
     const result = await getTableSample(args);
@@ -103,11 +104,15 @@ async function main() {
   // Validate configuration
   try {
     const config = getConfig();
+    // Initialize output directory (wipes stale files from previous sessions)
+    initOutputDir();
+
     console.error(`SAP HANA MCP Server starting...`);
     console.error(`  Host: ${config.host}:${config.port}`);
     console.error(`  Schema restriction: ${config.schema || "none (all schemas)"}`);
     console.error(`  Row limit: ${config.rowLimit}`);
     console.error(`  Query timeout: ${config.queryTimeout}ms`);
+    console.error(`  Output directory: ${getOutputDir()}`);
 
     // Test connection on startup
     console.error("Testing HANA connection...");

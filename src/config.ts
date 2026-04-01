@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 export interface HanaConfig {
   host: string;
@@ -11,6 +13,7 @@ export interface HanaConfig {
   rowLimit: number;
   queryTimeout: number; // ms
   connectionTimeout: number; // ms
+  outputDir: string; // Directory for tool output files
 }
 
 function getEnvRequired(key: string): string {
@@ -53,6 +56,7 @@ export function loadConfig(): HanaConfig {
     rowLimit: getEnvNumber("HANA_ROW_LIMIT", 1000),
     queryTimeout: getEnvNumber("HANA_QUERY_TIMEOUT", 30000), // 30s
     connectionTimeout: getEnvNumber("HANA_CONNECTION_TIMEOUT", 5000), // 5s
+    outputDir: process.env.HANA_OUTPUT_DIR || join(tmpdir(), "sap-hana-mcp"),
   };
 }
 

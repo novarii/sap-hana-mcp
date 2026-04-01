@@ -78,8 +78,9 @@ export function validateQuery(sql: string): void {
     normalized.startsWith(prefix)
   );
   if (!hasAllowedPrefix) {
+    const firstWord = trimmed.split(/\s/)[0] || trimmed;
     throw new QueryValidationError(
-      `Query must start with one of: ${ALLOWED_PREFIXES.join(", ")}`
+      `Query must start with SELECT, WITH, or EXPLAIN. Got: "${firstWord}". Only read-only queries are allowed.`
     );
   }
 
@@ -88,7 +89,9 @@ export function validateQuery(sql: string): void {
     // \b ensures we match whole words only (e.g., "SET" won't match "OFFSET")
     const regex = new RegExp(`\\b${keyword}\\b`, "i");
     if (regex.test(sql)) {
-      throw new QueryValidationError(`Blocked keyword detected: ${keyword}`);
+      throw new QueryValidationError(
+        `Query blocked: ${keyword} is not allowed. Only SELECT, WITH, and EXPLAIN statements are supported.`
+      );
     }
   }
 

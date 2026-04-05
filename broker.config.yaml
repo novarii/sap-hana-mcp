@@ -1,0 +1,116 @@
+# SAP Broker MCP — Server Configuration
+#
+# This file defines profiles, scopes, tool visibility, and token auth.
+# Keep this file server-side only. Do not expose to agents or sandboxes.
+#
+# Secrets (HANA creds, SAP creds, bootstrap secrets) belong in env vars, not here.
+# This file holds structured config: profiles, scopes, token hashes, tool mappings.
+
+# ---------------------------------------------------------------------------
+# Scope-to-tool mappings
+# ---------------------------------------------------------------------------
+# Each scope grants access to a set of tools.
+# Tools not listed under any scope the caller holds are invisible and uncallable.
+
+scopes:
+  # HANA read
+  read:metadata:
+    tools:
+      - list_schemas
+      - list_tables
+      - list_views
+      - describe_table
+      - get_table_sample
+  query:hana:
+    tools:
+      - execute_query
+
+  # SAP write
+  write:production_orders:
+    tools:
+      - create_production_order
+      - update_production_order
+  write:purchase_requests:
+    tools:
+      - create_purchase_request
+      - update_purchase_request
+  write:inventory:
+    tools:
+      - receive_inventory
+      - issue_inventory
+
+# ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
+# A profile is a named set of scopes. Tokens map to profiles.
+
+profiles:
+  observer:
+    description: Read-only metadata access (no raw SQL)
+    scopes:
+      - read:metadata
+  analyst:
+    description: Full read access including exploratory SQL
+    scopes:
+      - read:metadata
+      - query:hana
+  planner:
+    description: Read + production order management
+    scopes:
+      - read:metadata
+      - query:hana
+      - write:production_orders
+      - write:purchase_requests
+  warehouse:
+    description: Read + inventory movements
+    scopes:
+      - read:metadata
+      - write:inventory
+  operator:
+    description: Full access to all read and write operations
+    scopes:
+      - read:metadata
+      - query:hana
+      - write:production_orders
+      - write:purchase_requests
+      - write:inventory
+
+# ---------------------------------------------------------------------------
+# Tokens
+# ---------------------------------------------------------------------------
+# Opaque bearer tokens mapped to profiles.
+# Store SHA-256 hashes here. The server compares by hash on each request.
+#
+# To generate a token + hash pair:
+#   TOKEN=$(openssl rand -hex 32)
+#   HASH=$(echo -n "$TOKEN" | shasum -a 256 | cut -d' ' -f1)
+#   echo "token: $TOKEN"
+#   echo "hash:  sha256:$HASH"
+#
+# For the initial internal cut, plaintext tokens are acceptable if access
+# is tightly controlled. Replace with hashed tokens before broader deployment.
+
+tokens:
+  - hash: "sha256:placeholder-generate-a-real-hash"
+    profile: operator
+    identity: sandbox-operator-01
+  # - hash: "sha256:another-hash-here"
+  #   profile: planner
+  #   identity: sandbox-planner-01
+
+# ---------------------------------------------------------------------------
+# Approval
+# ---------------------------------------------------------------------------
+# Per-tool approval rules: required | auto | deny
+# Tools without a rule here execute without approval.
+# Only relevant for write tools — read tools are never gated.
+
+approval:
+  timeout: 120  # seconds to wait before auto-denying
+  rules:
+    create_production_order: required
+    update_production_order: required
+    create_purchase_request: required
+    update_purchase_request: auto
+    receive_inventory: required
+    issue_inventory: required

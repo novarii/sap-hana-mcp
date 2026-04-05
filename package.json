@@ -1,28 +1,31 @@
 {
-  "name": "sap-hana-mcp",
-  "version": "1.0.0",
-  "description": "MCP server for read-only access to SAP HANA databases",
+  "name": "sap-broker-mcp",
+  "version": "2.0.0",
+  "description": "SAP Broker MCP Server — authenticated, scope-aware access to SAP HANA and SAP Service Layer",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "sap-hana-mcp": "dist/index.js"
+    "sap-broker-mcp": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts"
   },
-  "keywords": ["mcp", "sap", "hana", "database"],
+  "keywords": ["mcp", "sap", "hana", "broker", "database"],
   "author": "",
   "license": "MIT",
   "packageManager": "pnpm@10.23.0",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@sap/hana-client": "^2.27.19",
     "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "yaml": "^2.7.1",
     "zod": "^4.2.1"
   },
   "devDependencies": {
+    "@types/express": "^5.0.2",
     "@types/node": "^25.0.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"

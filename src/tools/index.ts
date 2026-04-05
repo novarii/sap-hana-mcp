@@ -1,10 +1,13 @@
 /**
- * MCP Tools for SAP HANA
+ * MCP Tool definitions for SAP Broker.
  *
- * All tools for schema introspection and query execution.
+ * Exports a TOOL_DEFINITIONS array consumed by the tool registry.
+ * Each tool declares its name, description, input schema, and handler.
+ * The registry decides which tools to register based on caller scopes.
  */
 
 import { z } from "zod";
+import { SAP_WRITE_TOOLS } from "../sap/tools.js";
 import { executeQuery, getEffectiveSchema, isSchemaAllowed, type QueryResult } from "../hana/client.js";
 import { validateQuery, validateIdentifier, QueryValidationError } from "../security/query-validator.js";
 import { queryRateLimiter } from "../security/rate-limiter.js";
@@ -12,44 +15,51 @@ import { formatAsTable, formatResult, formatCompactDescribe, formatAsCsv } from 
 import { writeToolOutput, writeQueryOutput } from "./output.js";
 import { getConfig } from "../config.js";
 
-// ============================================================================
-// Tool Definitions (schemas for MCP registration)
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Tool definition type
+// ---------------------------------------------------------------------------
 
-export const listSchemasSchema = z.object({});
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: z.ZodObject<any>;
+  handler: (args: any) => Promise<string>;
+}
 
-export const listTablesSchema = z.object({
+// ---------------------------------------------------------------------------
+// Input schemas
+// ---------------------------------------------------------------------------
+
+const listSchemasSchema = z.object({});
+
+const listTablesSchema = z.object({
   schema: z.string().optional().describe("Schema name. If not provided, uses configured default schema."),
 });
 
-export const listViewsSchema = z.object({
+const listViewsSchema = z.object({
   schema: z.string().optional().describe("Schema name. If not provided, uses configured default schema."),
 });
 
-export const describeTableSchema = z.object({
+const describeTableSchema = z.object({
   schema: z.string().optional().describe("Schema name. If not provided, uses configured default schema."),
   table: z.string().describe("Table or view name to describe."),
 });
 
-export const executeQuerySchema = z.object({
+const executeQuerySchema = z.object({
   query: z.string().describe("SELECT query to execute. Only read-only queries are allowed."),
 });
 
-export const getTableSampleSchema = z.object({
+const getTableSampleSchema = z.object({
   schema: z.string().optional().describe("Schema name. If not provided, uses configured default schema."),
   table: z.string().describe("Table name to sample."),
   limit: z.number().min(1).max(100).default(5).describe("Number of rows to return (1-100, default 5)."),
 });
 
-// ============================================================================
-// Tool Implementations
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Tool implementations
+// ---------------------------------------------------------------------------
 
-/**
- * List all accessible schemas.
- * If HANA_SCHEMA is configured, only returns that schema.
- */
-export async function listSchemas(): Promise<string> {
+async function listSchemas(): Promise<string> {
   queryRateLimiter.check();
   const configuredSchema = getEffectiveSchema();
 
@@ -77,10 +87,7 @@ export async function listSchemas(): Promise<string> {
   return formatAsTable(result);
 }
 
-/**
- * List tables in a schema.
- */
-export async function listTables(args: z.infer<typeof listTablesSchema>): Promise<string> {
+async function listTables(args: z.infer<typeof listTablesSchema>): Promise<string> {
   queryRateLimiter.check();
   const schema = resolveSchema(args.schema);
   validateSchemaAccess(schema);
@@ -101,10 +108,7 @@ export async function listTables(args: z.infer<typeof listTablesSchema>): Promis
   return formatAsTable(result);
 }
 
-/**
- * List views in a schema.
- */
-export async function listViews(args: z.infer<typeof listViewsSchema>): Promise<string> {
+async function listViews(args: z.infer<typeof listViewsSchema>): Promise<string> {
   queryRateLimiter.check();
   const schema = resolveSchema(args.schema);
   validateSchemaAccess(schema);
@@ -123,11 +127,7 @@ export async function listViews(args: z.infer<typeof listViewsSchema>): Promise<
   return formatAsTable(result);
 }
 
-/**
- * Describe a table or view — compact format with file output.
- * Returns a short summary inline and writes full column list to a file.
- */
-export async function describeTable(args: z.infer<typeof describeTableSchema>): Promise<string> {
+async function describeTable(args: z.infer<typeof describeTableSchema>): Promise<string> {
   queryRateLimiter.check();
   const schema = resolveSchema(args.schema);
   validateSchemaAccess(schema);
@@ -153,8 +153,6 @@ export async function describeTable(args: z.infer<typeof describeTableSchema>): 
     ORDER BY POSITION
   `, [schema, args.table]);
 
-  // SAP B1 doesn't define FKs at DB level — skip that query entirely
-
   const pkColumns = new Set(pkResult.rows.map((r) => String(r.COLUMN_NAME)));
   const { summary, fileContent } = formatCompactDescribe(
     columnsResult.rows,
@@ -165,14 +163,10 @@ export async function describeTable(args: z.infer<typeof describeTableSchema>): 
 
   const filepath = writeToolOutput("describe", `${schema}_${args.table}`, fileContent);
 
-  return `${summary}\n\nFull column list → ${filepath}\nUse Read or Grep on the file to find specific columns.`;
+  return `${summary}\n\nFull column list -> ${filepath}\nUse Read or Grep on the file to find specific columns.`;
 }
 
-/**
- * Execute a read-only SQL query.
- * Small results return inline; large results go to a CSV file.
- */
-export async function executeUserQuery(args: z.infer<typeof executeQuerySchema>): Promise<string> {
+async function executeUserQuery(args: z.infer<typeof executeQuerySchema>): Promise<string> {
   queryRateLimiter.check();
 
   try {
@@ -187,14 +181,12 @@ export async function executeUserQuery(args: z.infer<typeof executeQuerySchema>)
   try {
     const result = await executeQuery(args.query);
 
-    // Small results: return inline (no file needed)
     if (result.rowCount <= 20 && result.columns.length <= 10) {
       const inline = formatResult(result);
       const suffix = result.truncated ? " (truncated)" : "";
       return `${result.rowCount} rows${suffix}.\n\n${inline}`;
     }
 
-    // Large results: write CSV to file, show first 5 rows inline
     const csv = formatAsCsv(result);
     const filepath = writeQueryOutput(args.query, csv);
 
@@ -212,7 +204,7 @@ export async function executeUserQuery(args: z.infer<typeof executeQuerySchema>)
       previewText,
       result.rowCount > 5 ? `... ${result.rowCount - 5} more rows` : "",
       "",
-      `Full results → ${filepath}`,
+      `Full results -> ${filepath}`,
     ].filter(Boolean).join("\n");
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -220,11 +212,7 @@ export async function executeUserQuery(args: z.infer<typeof executeQuerySchema>)
   }
 }
 
-/**
- * Get sample data from a table.
- * Writes full data to CSV file, returns summary inline.
- */
-export async function getTableSample(args: z.infer<typeof getTableSampleSchema>): Promise<string> {
+async function getTableSample(args: z.infer<typeof getTableSampleSchema>): Promise<string> {
   queryRateLimiter.check();
   const schema = resolveSchema(args.schema);
   validateSchemaAccess(schema);
@@ -234,7 +222,6 @@ export async function getTableSample(args: z.infer<typeof getTableSampleSchema>)
   const limit = Math.min(args.limit || 5, 100);
 
   try {
-    // Get total row count for context
     const countResult = await executeQuery(
       `SELECT COUNT(*) AS CNT FROM "${schema}"."${args.table}"`,
     );
@@ -243,19 +230,17 @@ export async function getTableSample(args: z.infer<typeof getTableSampleSchema>)
     const sql = `SELECT TOP ${Number(limit)} * FROM "${schema}"."${args.table}"`;
     const result = await executeQuery(sql);
 
-    // Count non-empty columns
     const nonEmptyCols = result.columns.filter((col) =>
       result.rows.some((row) => row[col] != null && String(row[col]).trim() !== "")
     );
 
-    // Write CSV to file
     const csv = formatAsCsv(result);
     const filepath = writeToolOutput("sample", `${schema}_${args.table}`, csv, "csv");
 
     return [
-      `${schema}.${args.table} — ${result.rowCount} sample rows (of ${totalRows.toLocaleString()} total), ${nonEmptyCols.length} non-empty columns (${result.columns.length} total)`,
+      `${schema}.${args.table} -- ${result.rowCount} sample rows (of ${totalRows.toLocaleString()} total), ${nonEmptyCols.length} non-empty columns (${result.columns.length} total)`,
       "",
-      `Data → ${filepath}`,
+      `Data -> ${filepath}`,
       `Use Read or Grep on the file to inspect specific columns.`,
     ].join("\n");
   } catch (err) {
@@ -264,13 +249,10 @@ export async function getTableSample(args: z.infer<typeof getTableSampleSchema>)
   }
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-/**
- * Resolves the schema to use - either from args or from config.
- */
 function resolveSchema(schema?: string): string {
   if (schema) return schema;
 
@@ -283,9 +265,6 @@ function resolveSchema(schema?: string): string {
   );
 }
 
-/**
- * Validates that the schema is allowed based on configuration.
- */
 function validateSchemaAccess(schema: string): void {
   if (!isSchemaAllowed(schema)) {
     const configuredSchema = getEffectiveSchema();
@@ -295,3 +274,51 @@ function validateSchemaAccess(schema: string): void {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Registry export
+// ---------------------------------------------------------------------------
+
+export const HANA_READ_TOOLS: ToolDefinition[] = [
+  {
+    name: "list_schemas",
+    description: "List all accessible database schemas. If HANA_SCHEMA is configured, only shows that schema.",
+    inputSchema: listSchemasSchema,
+    handler: listSchemas,
+  },
+  {
+    name: "list_tables",
+    description: "List all tables in a schema with their types and record counts.",
+    inputSchema: listTablesSchema,
+    handler: listTables,
+  },
+  {
+    name: "list_views",
+    description: "List all views in a schema.",
+    inputSchema: listViewsSchema,
+    handler: listViews,
+  },
+  {
+    name: "describe_table",
+    description: "Get table schema in compact notation. Returns a summary inline and writes full column list to a file. Use Read or Grep on the file path to find specific columns.",
+    inputSchema: describeTableSchema,
+    handler: describeTable,
+  },
+  {
+    name: "execute_query",
+    description: "Execute a read-only SQL SELECT query. Only SELECT and WITH statements are allowed. Small results return inline; large results are written to a CSV file with a preview shown inline.",
+    inputSchema: executeQuerySchema,
+    handler: executeUserQuery,
+  },
+  {
+    name: "get_table_sample",
+    description: "Get sample rows from a table written to a CSV file. Returns a summary inline with the file path. Use Read or Grep on the file to inspect specific columns.",
+    inputSchema: getTableSampleSchema,
+    handler: getTableSample,
+  },
+];
+
+export const TOOL_DEFINITIONS: ToolDefinition[] = [
+  ...HANA_READ_TOOLS,
+  ...SAP_WRITE_TOOLS,
+];

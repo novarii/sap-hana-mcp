@@ -1,141 +1,80 @@
 #!/usr/bin/env node
 
 /**
- * SAP HANA MCP Server
+ * SAP Broker MCP Server
  *
- * A Model Context Protocol server providing read-only access to SAP HANA databases.
+ * Authenticated, scope-aware MCP server for SAP HANA reads and SAP Service Layer writes.
+ *
+ * Transport modes:
+ *   - stdio  (default) — dev mode, all tools, no auth
+ *   - http   — production mode, bearer token auth, scope-filtered tools
+ *
+ * Set BROKER_TRANSPORT=http to run as an HTTP service.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  listSchemasSchema,
-  listTablesSchema,
-  listViewsSchema,
-  describeTableSchema,
-  executeQuerySchema,
-  getTableSampleSchema,
-  listSchemas,
-  listTables,
-  listViews,
-  describeTable,
-  executeUserQuery,
-  getTableSample,
-} from "./tools/index.js";
+import { getConfig, loadServerConfig, loadSAPConfig } from "./config.js";
+import { loadBrokerConfig } from "./auth/config.js";
 import { testConnection } from "./hana/client.js";
-import { getConfig } from "./config.js";
+import { createSAPClient } from "./sap/client.js";
+import { setSAPClient } from "./sap/tools.js";
 import { initOutputDir, getOutputDir } from "./tools/output.js";
-
-// Create MCP server
-const server = new McpServer({
-  name: "sap-hana-mcp",
-  version: "1.0.0",
-});
-
-// ============================================================================
-// Register Tools
-// ============================================================================
-
-server.tool(
-  "list_schemas",
-  "List all accessible database schemas. If HANA_SCHEMA is configured, only shows that schema.",
-  listSchemasSchema.shape,
-  async () => {
-    const result = await listSchemas();
-    return { content: [{ type: "text", text: result }] };
-  }
-);
-
-server.tool(
-  "list_tables",
-  "List all tables in a schema with their types and record counts.",
-  listTablesSchema.shape,
-  async (args) => {
-    const result = await listTables(args);
-    return { content: [{ type: "text", text: result }] };
-  }
-);
-
-server.tool(
-  "list_views",
-  "List all views in a schema.",
-  listViewsSchema.shape,
-  async (args) => {
-    const result = await listViews(args);
-    return { content: [{ type: "text", text: result }] };
-  }
-);
-
-server.tool(
-  "describe_table",
-  "Get table schema in compact notation. Returns a summary inline and writes full column list to a file. Use Read or Grep on the file path to find specific columns.",
-  describeTableSchema.shape,
-  async (args) => {
-    const result = await describeTable(args);
-    return { content: [{ type: "text", text: result }] };
-  }
-);
-
-server.tool(
-  "execute_query",
-  "Execute a read-only SQL SELECT query. Only SELECT and WITH statements are allowed. Small results return inline; large results are written to a CSV file with a preview shown inline.",
-  executeQuerySchema.shape,
-  async (args) => {
-    const result = await executeUserQuery(args);
-    return { content: [{ type: "text", text: result }] };
-  }
-);
-
-server.tool(
-  "get_table_sample",
-  "Get sample rows from a table written to a CSV file. Returns a summary inline with the file path. Use Read or Grep on the file to inspect specific columns.",
-  getTableSampleSchema.shape,
-  async (args) => {
-    const result = await getTableSample(args);
-    return { content: [{ type: "text", text: result }] };
-  }
-);
-
-// ============================================================================
-// Main Entry Point
-// ============================================================================
+import { startStdioServer } from "./server/stdio.js";
+import { createHttpApp } from "./server/http.js";
 
 async function main() {
-  // Validate configuration
-  try {
-    const config = getConfig();
-    // Initialize output directory (wipes stale files from previous sessions)
-    initOutputDir();
+  // Load HANA config (always required)
+  const hanaConfig = getConfig();
+  const serverConfig = loadServerConfig();
 
-    console.error(`SAP HANA MCP Server starting...`);
-    console.error(`  Host: ${config.host}:${config.port}`);
-    console.error(`  Schema restriction: ${config.schema || "none (all schemas)"}`);
-    console.error(`  Row limit: ${config.rowLimit}`);
-    console.error(`  Query timeout: ${config.queryTimeout}ms`);
-    console.error(`  Output directory: ${getOutputDir()}`);
+  // Initialize output directory
+  initOutputDir();
 
-    // Test connection on startup
-    console.error("Testing HANA connection...");
-    const connectionTest = await testConnection();
-    if (!connectionTest.success) {
-      console.error(`Connection test failed: ${connectionTest.message}`);
-      console.error("Server will start but queries may fail until connection is available.");
-    } else {
-      console.error("Connection test successful.");
-    }
-  } catch (err) {
-    console.error("Configuration error:", err instanceof Error ? err.message : err);
-    process.exit(1);
+  console.error("SAP Broker MCP starting...");
+  console.error(`  Transport: ${serverConfig.transport}`);
+  console.error(`  HANA host: ${hanaConfig.host}:${hanaConfig.port}`);
+  console.error(`  Schema restriction: ${hanaConfig.schema || "none (all schemas)"}`);
+  console.error(`  Row limit: ${hanaConfig.rowLimit}`);
+  console.error(`  Query timeout: ${hanaConfig.queryTimeout}ms`);
+  console.error(`  Output directory: ${getOutputDir()}`);
+
+  // Initialize SAP Service Layer client (optional — write tools need it)
+  const sapConfig = loadSAPConfig();
+  if (sapConfig) {
+    const sapClient = createSAPClient(sapConfig);
+    setSAPClient(sapClient);
+    console.error(`  SAP Service Layer: ${sapConfig.baseUrl} (${sapConfig.companyDb})`);
+  } else {
+    console.error("  SAP Service Layer: not configured (write tools unavailable)");
   }
 
-  // Start MCP server with stdio transport
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  // Test HANA connection
+  console.error("Testing HANA connection...");
+  const connectionTest = await testConnection();
+  if (!connectionTest.success) {
+    console.error(`Connection test failed: ${connectionTest.message}`);
+    console.error("Server will start but queries may fail until connection is available.");
+  } else {
+    console.error("Connection test successful.");
+  }
 
-  console.error("SAP HANA MCP Server running on stdio");
+  // Start the appropriate transport
+  if (serverConfig.transport === "stdio") {
+    await startStdioServer();
+  } else {
+    // HTTP mode — load broker config for auth + scoping
+    const brokerConfig = loadBrokerConfig(
+      serverConfig.brokerConfigPath || undefined,
+    );
+    console.error(`  Broker config loaded: ${Object.keys(brokerConfig.profiles).length} profiles, ${brokerConfig.tokens.length} tokens`);
+
+    const app = createHttpApp(brokerConfig);
+    app.listen(serverConfig.httpPort, serverConfig.httpHost, () => {
+      console.error(`SAP Broker MCP listening on http://${serverConfig.httpHost}:${serverConfig.httpPort}/mcp`);
+    });
+  }
 }
 
-// Handle graceful shutdown
+// Graceful shutdown
 process.on("SIGINT", () => {
   console.error("Shutting down...");
   process.exit(0);

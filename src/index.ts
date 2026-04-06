@@ -68,8 +68,20 @@ async function main() {
     console.error(`  Broker config loaded: ${Object.keys(brokerConfig.profiles).length} profiles, ${brokerConfig.tokens.length} tokens`);
 
     const app = createHttpApp(brokerConfig);
-    app.listen(serverConfig.httpPort, serverConfig.httpHost, () => {
-      console.error(`SAP Broker MCP listening on http://${serverConfig.httpHost}:${serverConfig.httpPort}/mcp`);
+    await new Promise<void>((resolve, reject) => {
+      app.listen(
+        serverConfig.httpPort,
+        serverConfig.httpHost,
+        (err?: Error) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          console.error(`SAP Broker MCP listening on http://${serverConfig.httpHost}:${serverConfig.httpPort}/mcp`);
+          resolve();
+        },
+      );
     });
   }
 }

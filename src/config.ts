@@ -31,6 +31,9 @@ export interface ServerConfig {
   httpPort: number;
   httpHost: string;
   brokerConfigPath: string;
+  tlsEnabled: boolean;
+  tlsKeyPath: string;
+  tlsCertPath: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +98,9 @@ export function loadServerConfig(): ServerConfig {
     httpPort: getEnvNumber("BROKER_PORT", 3000),
     httpHost: getEnvOptional("BROKER_HOST", "127.0.0.1"),
     brokerConfigPath: process.env.BROKER_CONFIG || "",
+    tlsEnabled: getEnvBoolean("BROKER_TLS", false),
+    tlsKeyPath: getEnvOptional("BROKER_TLS_KEY", "/opt/sap-broker/tls/key.pem"),
+    tlsCertPath: getEnvOptional("BROKER_TLS_CERT", "/opt/sap-broker/tls/cert.pem"),
   };
 }
 

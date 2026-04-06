@@ -19,7 +19,7 @@ import { createSAPClient } from "./sap/client.js";
 import { setSAPClient } from "./sap/tools.js";
 import { initOutputDir, getOutputDir } from "./tools/output.js";
 import { startStdioServer } from "./server/stdio.js";
-import { createHttpApp } from "./server/http.js";
+import { createBrokerHttpServer, createHttpApp } from "./server/http.js";
 
 async function main() {
   // Load HANA config (always required)
@@ -68,8 +68,10 @@ async function main() {
     console.error(`  Broker config loaded: ${Object.keys(brokerConfig.profiles).length} profiles, ${brokerConfig.tokens.length} tokens`);
 
     const app = createHttpApp(brokerConfig);
+    const server = createBrokerHttpServer(app, serverConfig);
+    const protocol = serverConfig.tlsEnabled ? "https" : "http";
     await new Promise<void>((resolve, reject) => {
-      app.listen(
+      server.listen(
         serverConfig.httpPort,
         serverConfig.httpHost,
         (err?: Error) => {
@@ -78,7 +80,7 @@ async function main() {
             return;
           }
 
-          console.error(`SAP Broker MCP listening on http://${serverConfig.httpHost}:${serverConfig.httpPort}/mcp`);
+          console.error(`SAP Broker MCP listening on ${protocol}://${serverConfig.httpHost}:${serverConfig.httpPort}/mcp`);
           resolve();
         },
       );

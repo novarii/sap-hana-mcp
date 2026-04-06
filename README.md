@@ -38,6 +38,9 @@ Copy `.env.example` to `.env` and fill in your values.
 | `BROKER_HOST` | No | `127.0.0.1` | HTTP bind address |
 | `BROKER_PORT` | No | `3000` | HTTP port |
 | `BROKER_CONFIG` | No | `./broker.config.yaml` | Path to broker config (HTTP mode only) |
+| `BROKER_TLS` | No | `false` | Enable HTTPS for the broker endpoint |
+| `BROKER_TLS_KEY` | No | `/opt/sap-broker/tls/key.pem` | PEM private key path when TLS is enabled |
+| `BROKER_TLS_CERT` | No | `/opt/sap-broker/tls/cert.pem` | PEM certificate path when TLS is enabled |
 | **HANA** | | | |
 | `HANA_HOST` | Yes | - | HANA server hostname or IP |
 | `HANA_PORT` | No | `30015` | HANA port (3\<instance\>15) |
@@ -128,6 +131,9 @@ In stdio mode all tools are available with no auth (dev only).
 BROKER_TRANSPORT=http \
 BROKER_HOST=127.0.0.1 \
 BROKER_PORT=3000 \
+BROKER_TLS=true \
+BROKER_TLS_KEY=/opt/sap-broker/tls/key.pem \
+BROKER_TLS_CERT=/opt/sap-broker/tls/cert.pem \
 HANA_HOST=your-hana-host.example.com \
 HANA_USER=MCP_READER \
 HANA_PASSWORD=your_password \
@@ -184,7 +190,7 @@ Sessions are tracked via the `Mcp-Session-Id` header.
 
 ### Health Check
 
-`GET /health` — returns `{ status, sessions, pendingApprovals }` (unauthenticated).
+`GET /health` — returns `{ status, sessions, pendingApprovals }` (unauthenticated). If `BROKER_TLS=true`, probe it with `curl -k https://127.0.0.1:${BROKER_PORT:-3000}/health`.
 
 ## Security Model
 

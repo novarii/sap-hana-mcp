@@ -9,6 +9,9 @@
  */
 
 import express, { type Request, type Response, type NextFunction } from "express";
+import { readFileSync } from "node:fs";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
 import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -16,6 +19,7 @@ import { validateToken } from "../auth/tokens.js";
 import { ApprovalStore } from "../approval/store.js";
 import { createApprovalRoutes } from "../approval/routes.js";
 import type { BrokerConfig } from "../auth/config.js";
+import type { ServerConfig } from "../config.js";
 import type { CallerContext } from "./context.js";
 import { createServerForCaller } from "./registry.js";
 
@@ -159,4 +163,21 @@ export function createHttpApp(brokerConfig: BrokerConfig): express.Express {
   process.on("SIGINT", () => approvalStore.cancelAll());
 
   return app;
+}
+
+export function createBrokerHttpServer(
+  app: express.Express,
+  serverConfig: Pick<ServerConfig, "tlsEnabled" | "tlsKeyPath" | "tlsCertPath">,
+): HttpServer | HttpsServer {
+  if (!serverConfig.tlsEnabled) {
+    return createHttpServer(app);
+  }
+
+  return createHttpsServer(
+    {
+      key: readFileSync(serverConfig.tlsKeyPath),
+      cert: readFileSync(serverConfig.tlsCertPath),
+    },
+    app,
+  );
 }

@@ -91,7 +91,7 @@ profiles:
 # is tightly controlled. Replace with hashed tokens before broader deployment.
 
 tokens:
-  - hash: "sha256:placeholder-generate-a-real-hash"
+  - hash: "sha256:2a7156a26f4bb304933be6e3a9f6005c2d18b500aaeedcf7e83a5219d2b12206"
     profile: operator
     identity: sandbox-operator-01
   # - hash: "sha256:another-hash-here"
@@ -106,7 +106,7 @@ tokens:
 # Only relevant for write tools — read tools are never gated.
 
 approval:
-  timeout: 120  # seconds to wait before auto-denying
+  timeout: 120 # seconds to wait before auto-denying
   rules:
     create_production_order: required
     update_production_order: required

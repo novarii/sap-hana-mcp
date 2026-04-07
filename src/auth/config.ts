@@ -11,9 +11,25 @@ export interface ScopeDefinition {
   tools: string[];
 }
 
+/** Raw YAML shape: env-var names, not actual credentials */
+export interface ProfileHanaOverride {
+  user_env: string;
+  password_env: string;
+  schema?: string;
+}
+
+/** Resolved at startup: actual credential values read from env vars */
+export interface ResolvedHanaOverride {
+  user: string;
+  password: string;
+  schema?: string;
+}
+
 export interface ProfileDefinition {
   description?: string;
   scopes: string[];
+  hana?: ProfileHanaOverride;
+  resolvedHana?: ResolvedHanaOverride;
 }
 
 export interface TokenEntry {
@@ -58,6 +74,7 @@ export function loadBrokerConfig(configPath?: string): BrokerConfig {
 
   const parsed = parseYaml(raw);
   const config = validateBrokerConfig(parsed, filePath);
+  resolveProfileHanaOverrides(config);
   cached = config;
   return config;
 }
@@ -69,6 +86,36 @@ export function clearBrokerConfigCache(): void {
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve env-var references in profile hana overrides at startup.
+ * Fails fast if any referenced env var is missing.
+ */
+function resolveProfileHanaOverrides(config: BrokerConfig): void {
+  for (const [name, profile] of Object.entries(config.profiles)) {
+    if (!profile.hana) continue;
+
+    const user = process.env[profile.hana.user_env];
+    if (!user) {
+      throw new Error(
+        `Broker config: profile '${name}' hana.user_env references missing env var '${profile.hana.user_env}'`
+      );
+    }
+
+    const password = process.env[profile.hana.password_env];
+    if (!password) {
+      throw new Error(
+        `Broker config: profile '${name}' hana.password_env references missing env var '${profile.hana.password_env}'`
+      );
+    }
+
+    profile.resolvedHana = {
+      user,
+      password,
+      schema: profile.hana.schema,
+    };
+  }
+}
 
 function validateBrokerConfig(raw: unknown, filePath: string): BrokerConfig {
   if (!raw || typeof raw !== "object") {
@@ -104,9 +151,26 @@ function validateBrokerConfig(raw: unknown, filePath: string): BrokerConfig {
         throw new Error(`Broker config: profile '${name}' references unknown scope '${s}'`);
       }
     }
+    // Parse optional hana override block
+    let hana: ProfileHanaOverride | undefined;
+    const rawHana = (def as any).hana;
+    if (rawHana && typeof rawHana === "object") {
+      if (typeof rawHana.user_env !== "string" || typeof rawHana.password_env !== "string") {
+        throw new Error(
+          `Broker config: profile '${name}' hana block must have string 'user_env' and 'password_env'`
+        );
+      }
+      hana = {
+        user_env: rawHana.user_env,
+        password_env: rawHana.password_env,
+        schema: typeof rawHana.schema === "string" ? rawHana.schema : undefined,
+      };
+    }
+
     profiles[name] = {
       description: (def as any).description,
       scopes: profileScopes,
+      hana,
     };
   }
 

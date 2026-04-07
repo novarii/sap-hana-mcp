@@ -35,6 +35,7 @@ export function validateToken(
         identity: entry.identity,
         profile: entry.profile,
         scopes: new Set(profile.scopes),
+        hanaOverrides: profile.resolvedHana,
       };
     }
   }

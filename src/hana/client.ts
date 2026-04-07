@@ -10,6 +10,7 @@
 import hana from "@sap/hana-client";
 import { getConfig, type HanaConfig } from "../config.js";
 import { auditLog } from "../security/audit.js";
+import { callerStore } from "./caller-store.js";
 
 export interface QueryResult {
   columns: string[];
@@ -36,11 +37,29 @@ function getConnectionParams(config: HanaConfig): hana.ConnectionOptions {
 }
 
 /**
+ * Builds an effective HANA config by merging caller overrides (if any) with
+ * the global config. Only user, password, and schema can be overridden.
+ */
+function getEffectiveConfig(): HanaConfig {
+  const config = getConfig();
+  const caller = callerStore.getStore();
+  if (!caller?.hanaOverrides) return config;
+
+  const overrides = caller.hanaOverrides;
+  return {
+    ...config,
+    user: overrides.user,
+    password: overrides.password,
+    ...(overrides.schema !== undefined ? { schema: overrides.schema } : {}),
+  };
+}
+
+/**
  * Creates a new connection to SAP HANA.
  * Caller is responsible for closing the connection.
  */
 export function createConnection(): Promise<hana.Connection> {
-  const config = getConfig();
+  const config = getEffectiveConfig();
   const params = getConnectionParams(config);
 
   return new Promise((resolve, reject) => {
@@ -200,17 +219,17 @@ export async function testConnection(): Promise<{ success: boolean; message: str
 }
 
 /**
- * Gets the effective schema - either from config or the connection default.
+ * Gets the effective schema - caller override takes precedence over global config.
  */
 export function getEffectiveSchema(): string | undefined {
-  return getConfig().schema;
+  return getEffectiveConfig().schema;
 }
 
 /**
- * Validates that a schema is accessible (either matches config or config allows all).
+ * Validates that a schema is accessible (either matches effective config or config allows all).
  */
 export function isSchemaAllowed(schema: string): boolean {
-  const configuredSchema = getConfig().schema;
+  const configuredSchema = getEffectiveConfig().schema;
   // If no schema configured, all schemas are allowed
   if (!configuredSchema) return true;
   // Otherwise, must match the configured schema

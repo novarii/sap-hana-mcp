@@ -12,6 +12,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { TOOL_DEFINITIONS } from "../tools/index.js";
 import { resolveAllowedTools } from "../auth/scopes.js";
 import { withApprovalGate } from "../approval/service.js";
+import { callerStore } from "../hana/caller-store.js";
 import type { ApprovalStore } from "../approval/store.js";
 import type { BrokerConfig } from "../auth/config.js";
 import type { CallerContext } from "./context.js";
@@ -58,7 +59,7 @@ export function createServerForCaller(
       tool.description,
       tool.inputSchema.shape,
       async (args: Record<string, unknown>) => {
-        const result = await boundHandler(args);
+        const result = await callerStore.run(caller, () => boundHandler(args));
         return { content: [{ type: "text" as const, text: result }] };
       },
     );

@@ -1,3 +1,5 @@
+import type { ResolvedHanaOverride } from "../auth/config.js";
+
 /**
  * Caller context attached to each authenticated session.
  * Carries identity, profile, and resolved scopes.
@@ -6,6 +8,7 @@ export interface CallerContext {
   identity: string;
   profile: string;
   scopes: Set<string>;
+  hanaOverrides?: ResolvedHanaOverride;
 }
 
 /**

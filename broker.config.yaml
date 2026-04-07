@@ -49,11 +49,18 @@ profiles:
     description: Read-only metadata access (no raw SQL)
     scopes:
       - read:metadata
+    # hana:                              # optional per-profile DB credentials
+    #   user_env: HANA_USER_OBSERVER     # env var name holding the DB username
+    #   password_env: HANA_PASSWORD_OBSERVER
+    #   schema: SBO_PRODUCTION           # optional schema override
   analyst:
     description: Full read access including exploratory SQL
     scopes:
       - read:metadata
       - query:hana
+    # hana:
+    #   user_env: HANA_USER_ANALYST
+    #   password_env: HANA_PASSWORD_ANALYST
   planner:
     description: Read + production order management
     scopes:

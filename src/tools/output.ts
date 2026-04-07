@@ -93,13 +93,16 @@ function uploadToSandbox(localPath: string, filename: string): string | null {
     return null;
   }
 
-  const sandboxPath = `${config.sandboxOutputDir}/${filename}`;
+  const sandboxDir = config.sandboxOutputDir;
+  const sandboxPath = `${sandboxDir}/${filename}`;
   try {
+    // Upload to the directory — openshell places the file by its local name.
+    // Uploading to a full file path creates a directory instead.
     execFileSync("openshell", [
       "sandbox", "upload",
       config.sandboxName,
       localPath,
-      sandboxPath,
+      sandboxDir,
     ], { timeout: 5000, stdio: "pipe" });
     return sandboxPath;
   } catch {

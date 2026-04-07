@@ -1,4 +1,4 @@
-# SAP Broker MCP
+# SAP B1-HANA Broker MCP
 
 Authenticated, scope-aware MCP server for SAP HANA reads and SAP Service Layer writes. Connects LLMs like Claude to your SAP environment with per-caller profiles, approval gates, and defense-in-depth security.
 

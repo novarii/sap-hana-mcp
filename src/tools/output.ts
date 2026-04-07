@@ -6,6 +6,7 @@
  * with the file path. The agent can then Read or Grep the file as needed.
  */
 
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getConfig } from "../config.js";
@@ -59,7 +60,9 @@ export function writeToolOutput(
   const filename = `${prefix}_${name}_${formatTimestamp()}.${ext}`;
   const filepath = join(dir, filename);
   writeFileSync(filepath, content, "utf-8");
-  return filepath;
+
+  const sandboxPath = uploadToSandbox(filepath, filename);
+  return sandboxPath ?? filepath;
 }
 
 /**
@@ -77,4 +80,30 @@ export function writeQueryOutput(
   }
   const hexHash = Math.abs(hash).toString(16).padStart(6, "0").slice(0, 6);
   return writeToolOutput("query", hexHash, content, ext);
+}
+
+/**
+ * If SANDBOX_NAME and SANDBOX_OUTPUT_DIR are configured, uploads the file
+ * into the sandbox via `openshell sandbox upload` and returns the sandbox path.
+ * Returns null if sandbox upload is not configured or fails (graceful fallback).
+ */
+function uploadToSandbox(localPath: string, filename: string): string | null {
+  const config = getConfig();
+  if (!config.sandboxName || !config.sandboxOutputDir) {
+    return null;
+  }
+
+  const sandboxPath = `${config.sandboxOutputDir}/${filename}`;
+  try {
+    execFileSync("openshell", [
+      "sandbox", "upload",
+      config.sandboxName,
+      localPath,
+      sandboxPath,
+    ], { timeout: 5000, stdio: "pipe" });
+    return sandboxPath;
+  } catch {
+    // Upload failed — fall back to local path so the tool still works
+    return null;
+  }
 }

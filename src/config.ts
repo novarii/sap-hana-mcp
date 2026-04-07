@@ -18,6 +18,10 @@ export interface HanaConfig {
   queryTimeout: number;
   connectionTimeout: number;
   outputDir: string;
+  /** OpenShell sandbox name — if set, output files are uploaded to the sandbox. */
+  sandboxName?: string;
+  /** Directory inside the sandbox where output files land (e.g. /sandbox/work/badi-workspace/sap-results). */
+  sandboxOutputDir?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +89,8 @@ export function loadHanaConfig(): HanaConfig {
     queryTimeout: getEnvNumber("HANA_QUERY_TIMEOUT", 30000),
     connectionTimeout: getEnvNumber("HANA_CONNECTION_TIMEOUT", 5000),
     outputDir: process.env.HANA_OUTPUT_DIR || join(tmpdir(), "sap-broker-mcp"),
+    sandboxName: process.env.SANDBOX_NAME || undefined,
+    sandboxOutputDir: process.env.SANDBOX_OUTPUT_DIR || undefined,
   };
 }
 
